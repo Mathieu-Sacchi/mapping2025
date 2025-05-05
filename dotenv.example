@@ -1,5 +1,8 @@
 # API Keys
+# Single API key
 GEMINI_API_KEY=your_api_key_here
+# Multiple API keys (comma-separated for quota distribution)
+GEMINI_API_KEYS=key1,key2,key3
 
 # Model Configuration
 MODEL=gemini-2.0-flash
@@ -14,4 +17,9 @@ ERROR_FILE=errors_unprocessed.txt
 # Runtime Configuration
 MAX_RETRIES=5
 BATCH_SIZE=15
-PAUSE_SECONDS=60 
+PAUSE_SECONDS=60
+
+# Parallelization Configuration
+MAX_WORKERS=4
+QUOTA_PER_MINUTE=15
+WAIT_AFTER_QUOTA=60 
