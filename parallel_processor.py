@@ -15,7 +15,9 @@ load_dotenv()  # Load .env file
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 API_KEY = os.getenv("GEMINI_API_KEY")
-API_KEYS = os.getenv("GEMINI_API_KEYS", API_KEY).split(',')  # Support multiple API keys
+# Clean and process API keys from environment variable
+api_keys_raw = os.getenv("GEMINI_API_KEYS", API_KEY)
+API_KEYS = [k.strip() for k in api_keys_raw.split(',') if k.strip()]  # Strip whitespace and filter empty
 MODEL = os.getenv("MODEL", "gemini-2.0-flash")
 
 EXISTING_FILE = os.getenv("EXISTING_FILE", "existing_mapping.csv")
@@ -28,6 +30,12 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))  # Number of parallel workers
 QUOTA_PER_MINUTE = int(os.getenv("QUOTA_PER_MINUTE", "15"))  # API calls allowed per minute
 WAIT_AFTER_QUOTA = int(os.getenv("WAIT_AFTER_QUOTA", "60"))  # Seconds to wait after hitting quota
+
+# Print configuration summary
+print(f"🚀 Starting parallel processor with {MAX_WORKERS} workers")
+print(f"📋 Processing from {NEW_FILE} → {OUTPUT_FILE}")
+print(f"🔑 Using {len(API_KEYS)} API key(s)")
+print(f"⏱️  Quota: {QUOTA_PER_MINUTE} requests/minute, {WAIT_AFTER_QUOTA}s wait time")
 
 # Global locks and counters for managing API quotas
 api_call_lock = Lock()
@@ -103,25 +111,19 @@ def safe_classify_entity(name: str, description: str, max_retries: int = MAX_RET
             )
             raw = resp.text.strip()
 
-            # Debug the raw response and search for tags
-            print(f"\n🔍 DEBUG - Raw response length for {name}: {len(raw)} chars")
+            # Search for JSON tags (minimal debug output)
             start_tag = "<JSON>"
             end_tag = "</JSON>"
-            
-            # Try printing the exact indices to debug
             start_idx = raw.find(start_tag)
             end_idx = raw.find(end_tag)
-            print(f"🔍 DEBUG - Tag indices: start_tag={start_idx}, end_tag={end_idx}")
             
             # If standard search fails, try a more forceful approach
             if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
-                print(f"\n🔍 DEBUG - Standard tag search failed, trying direct JSON extraction")
                 # Try to find any JSON-like content
                 json_pattern = r'({.*?})'
                 json_matches = re.findall(json_pattern, raw, re.DOTALL)
                 
                 if json_matches:
-                    print(f"🔍 DEBUG - Found {len(json_matches)} potential JSON objects")
                     # Try the first match that looks promising
                     for potential_json in json_matches:
                         try:
@@ -130,53 +132,39 @@ def safe_classify_entity(name: str, description: str, max_retries: int = MAX_RET
                             clean_json = re.sub(r',\s*}', '}', clean_json)
                             clean_json = clean_json.replace("'", '"')
                             result = json.loads(clean_json)
-                            print(f"🔍 DEBUG - Successfully parsed JSON from pattern match!")
                             return True, result
                         except json.JSONDecodeError:
                             continue
                 
-                # If we still can't find valid JSON, print the raw response for manual inspection
-                print(f"\n🔍 DEBUG - Raw response for {name}:\n{raw}\n")
+                # If we still can't find valid JSON
+                print(f"❌ No valid JSON found for {name}")
                 raise ValueError("No valid JSON block found")
             
             # Extract the JSON text
             json_text = raw[start_idx + len(start_tag):end_idx].strip()
-            print(f"🔍 DEBUG - Extracted JSON text length: {len(json_text)} chars")
             
             # Handle double braces
             if json_text.startswith("{{") and json_text.endswith("}}"):
                 json_text = json_text[1:-1]
-                print("🔍 DEBUG - Removed double braces")
             
             # Clean up common JSON formatting issues
-            original_json = json_text
             json_text = re.sub(r',\s*}', '}', json_text)  # Remove trailing commas
             json_text = json_text.replace("'", '"')  # Replace single quotes with double quotes
-            
-            if original_json != json_text:
-                print("🔍 DEBUG - Cleaned up JSON formatting")
             
             # Try parsing the JSON with multiple fallback approaches
             try:
                 result = json.loads(json_text)
-                print("🔍 DEBUG - Successfully parsed JSON!")
                 return True, result
             except json.JSONDecodeError as e:
-                print(f"\n🔍 DEBUG - Error parsing JSON: {e}")
-                print(f"🔍 DEBUG - Extracted JSON for {name}:\n{json_text}\n")
-                
                 # Fallback: Try forcing the structure
                 try:
-                    print("🔍 DEBUG - Trying forceful JSON parsing...")
                     # Attempt to force the JSON into a valid structure
                     cleaned_json = re.sub(r'[^\x00-\x7F]+', '', json_text)  # Remove non-ASCII chars
                     cleaned_json = re.sub(r'[\n\r\t]+', ' ', cleaned_json)  # Normalize whitespace
                     result = json.loads(cleaned_json)
-                    print("🔍 DEBUG - Forceful JSON parsing succeeded!")
                     return True, result
                 except json.JSONDecodeError:
                     # Last attempt: Try to construct a minimal valid JSON
-                    print("🔍 DEBUG - Trying minimal JSON reconstruction...")
                     minimal_json = {
                         "is_startup": False,
                         "is_startup_confidence": 0,
@@ -211,10 +199,9 @@ def safe_classify_entity(name: str, description: str, max_retries: int = MAX_RET
                             if key in minimal_json:
                                 minimal_json[key] = value
                                 
-                        print("🔍 DEBUG - Created minimal JSON with extracted values")
                         return True, minimal_json
                     except Exception as e:
-                        print(f"🔍 DEBUG - Minimal JSON reconstruction failed: {e}")
+                        print(f"❌ JSON reconstruction failed for {name}: {e}")
                         raise ValueError(f"Failed to parse JSON: {e}")
                 raise
         except api_exceptions.ResourceExhausted as e:
@@ -312,11 +299,20 @@ def main():
     if os.path.exists(CHECKPOINT_FILE):
         processed_set = {line.strip() for line in open(CHECKPOINT_FILE, encoding="utf-8")}
     
+    # Filter out already processed companies for efficiency
+    if processed_set:
+        todo_df = todo_df[~todo_df["Company Name"].isin(processed_set)]
+        print(f"After filtering already processed: {len(todo_df)} companies remain")
+    
     # ─── Parallel processing ──────────────────────────────────────────────────────
     records = []
     
     # Convert DataFrame to list of dictionaries for parallel processing
     companies_to_process = todo_df.to_dict('records')
+    
+    # Start timer to track performance
+    start_time = time.time()
+    processed_count = 0
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_company = {executor.submit(process_company, company): company for company in companies_to_process}
@@ -325,6 +321,15 @@ def main():
             company = future_to_company[future]
             try:
                 record = future.result()
+                processed_count += 1
+                
+                # Show progress and speed estimates
+                elapsed = time.time() - start_time
+                if processed_count > 0 and elapsed > 0:
+                    rate = processed_count / elapsed
+                    remaining = (len(companies_to_process) - processed_count) / rate if rate > 0 else 0
+                    print(f"Progress: {processed_count}/{len(companies_to_process)} ({rate:.2f}/min, ~{remaining/60:.1f} min remaining)")
+                
                 if record:
                     with output_lock:
                         records.append(record)
@@ -342,8 +347,10 @@ def main():
         if records else existing_df
     )
     updated_df.to_csv(OUTPUT_FILE, index=False)
+    total_time = time.time() - start_time
     print(f"✅  Added {len(records)} Gen-AI startups → {OUTPUT_FILE}")
     print(f"🔖  Progress checkpoint saved to {CHECKPOINT_FILE}")
+    print(f"⏱️  Total processing time: {total_time/60:.1f} minutes ({processed_count/total_time*60:.1f} companies/hour)")
 
 if __name__ == "__main__":
     main() 

@@ -2,7 +2,7 @@
 # Single API key
 GEMINI_API_KEY=your_api_key_here
 # Multiple API keys (comma-separated for quota distribution)
-GEMINI_API_KEYS=key1,key2,key3
+# GEMINI_API_KEYS=key1,key2,key3,key4
 
 # Model Configuration
 MODEL=gemini-2.0-flash
@@ -14,12 +14,17 @@ OUTPUT_FILE=updated_mapping.csv
 CHECKPOINT_FILE=checkpoint_processed.txt
 ERROR_FILE=errors_unprocessed.txt
 
-# Runtime Configuration
-MAX_RETRIES=5
+# Runtime Configuration - Sequential Mode
 BATCH_SIZE=15
 PAUSE_SECONDS=60
 
-# Parallelization Configuration
+# Parallelization Configuration 
+# Number of parallel workers (recommended: number of API keys up to 4)
 MAX_WORKERS=4
-QUOTA_PER_MINUTE=15
-WAIT_AFTER_QUOTA=60 
+# API calls allowed per worker pool per minute (approximately 15 per key)
+QUOTA_PER_MINUTE=60
+# Seconds to wait after hitting quota
+WAIT_AFTER_QUOTA=60
+
+# Retry Configuration
+MAX_RETRIES=5 
