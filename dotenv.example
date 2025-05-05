@@ -1,0 +1,17 @@
+# API Keys
+GEMINI_API_KEY=your_api_key_here
+
+# Model Configuration
+MODEL=gemini-2.0-flash
+
+# File Paths
+EXISTING_FILE=existing_mapping.csv
+NEW_FILE=CB.xlsx
+OUTPUT_FILE=updated_mapping.csv
+CHECKPOINT_FILE=checkpoint_processed.txt
+ERROR_FILE=errors_unprocessed.txt
+
+# Runtime Configuration
+MAX_RETRIES=5
+BATCH_SIZE=15
+PAUSE_SECONDS=60 

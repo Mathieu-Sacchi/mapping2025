@@ -1,0 +1,43 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+
+# Checkpoint files
+checkpoint_processed.txt
+checkpoint_processed.txt.bak
+
+# Logs
+errors_unprocessed.txt
+
+# Backup files and files with potential API keys
+*copy.py
+Code Used for Attio.py
+main copy.py
+
+# OS specific
+.DS_Store
+Thumbs.db 
